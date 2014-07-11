@@ -1,5 +1,7 @@
 #!/bin/bash
 
+. $HOME/.bashrc
+
 export TODAY=$(date +%Y%m%d%H%M%S)
 export SQLDIR=/home/dbadmin/vstb/sql/merge
 export LOGDIR=/home/dbadmin/vstb/log

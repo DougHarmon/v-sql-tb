@@ -1,6 +1,7 @@
 #!/bin/bash
 #Monitor the lag in the Ancient History Mark (AHM)
 #If AHM >= $HOURS_BEHIND then send an email to $EMAIL_LIST
+. $HOME/.bashrc
 
 #Parameters
 export HOURS_BEHIND=4
