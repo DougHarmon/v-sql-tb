@@ -1,0 +1,125 @@
+#!/bin/bash
+
+################################################################################
+# Parallel Loader for Vertica -- 
+# Purpose: Loads data from one Vertica database to another using mutually 
+#          exclusive parallel streams.
+# Source Database is Vertica
+# Destination Database is Vertica
+# Secret Sauce:
+#   1. Parallel Load Streams
+#   2. Compress data via gzip  on the source database server.
+#
+# For this demo we will use VMART
+# Create a destination table FT_Inventory in VMart through vsql:
+# CREATE TABLE FT_Inventory like public.inventory_fact including projections;
+# Script loads from public.inventory_fact into FT_Inventory
+# Set parameters appropriate for your database system
+################################################################################
+export TODAY=$(date +%Y%m%d%H%M%S)
+export VSQL_CLIENT=/opt/vertica/bin/vsql
+export START_TIME=$(vsql -t -c 'SELECT GETDATE()' | cut -c1-20)
+echo ${START_TIME}
+
+################################################################################
+# Source Database Parameters
+################################################################################
+export SHOST="localhost"
+export SDBNAME="VMart"
+export SUSER="dbadmin"
+export SPSWD="password"
+export VSQL_SRC=" -h "${SHOST}" -d "${SDBNAME}" -U "${SUSER}" -w "${SPSWD}
+
+################################################################################
+# Destination Database Parameters
+################################################################################
+export DHOST="localhost"
+export DDBNAME="VMart"
+export DUSER="dbadmin"
+export DPSWD="password"
+export VSQL_DST=" -h "${DHOST}" -d "${DDBNAME}" -U "${DUSER}" -w "${DPSWD}
+
+################################################################################
+# Define files and stream names
+################################################################################
+SQL_FILE_SRC="/tmp/dtl_src_"${TODAY}
+SQL_FILE_DST="/tmp/dtl_dst_"${TODAY}
+EXCEPTION_FILE="/tmp/exceptions_"${TODAY}
+REJECTION_FILE="/tmp/rejects_"${TODAY}
+STREAM_NAME="FT_Inv_"${TODAY}
+
+################################################################################
+# Build Load File
+################################################################################
+PARALLEL_STREAMS=4
+COUNTER=0
+
+
+while [ ${COUNTER} -lt ${PARALLEL_STREAMS} ]; do
+
+export EXTRACT_FILE=${SQL_FILE_SRC}"_"${COUNTER}".sql"
+echo "SELECT * FROM inventory_fact WHERE 1=1" >> ${EXTRACT_FILE}
+echo "   AND MOD(HASH(date_key), "${PARALLEL_STREAMS}") = "${COUNTER}" ;" >> ${EXTRACT_FILE}
+
+export IMPORT_FILE=${SQL_FILE_DST}"_"${COUNTER}".sql"
+echo "COPY public.FT_Inventory FROM LOCAL STDIN GZIP DELIMITER E'\035'   " > ${IMPORT_FILE}
+echo " EXCEPTIONS    '"${EXCEPTION_FILE}"_"${COUNTER}".txt' "  >> ${IMPORT_FILE}
+echo " REJECTED DATA '"${REJECTION_FILE}"_"${COUNTER}".txt' "  >> ${IMPORT_FILE}
+echo " STREAM NAME '"${STREAM_NAME}"_"${COUNTER}"'" >> ${IMPORT_FILE}
+echo " DIRECT; "  >> ${IMPORT_FILE}
+export IMPORT_STRING=$(cat ${IMPORT_FILE})
+
+${VSQL_CLIENT} ${VSQL_SRC} -F $'\035' -At -f ${EXTRACT_FILE} \
+| gzip | \
+${VSQL_CLIENT} ${VSQL_DST} -c "${IMPORT_STRING}" &
+
+let COUNTER=COUNTER+1
+
+done
+
+wait
+
+export END_TIME=$(${VSQL_CLIENT} ${VSQL_DST} -t -c 'SELECT GETDATE()' | cut -c1-20)
+#echo ${END_TIME}
+
+export DURATION_SECONDS=$(${VSQL_CLIENT} ${VSQL_DST} -t -c\
+"SELECT DATEDIFF(s, '{$START_TIME}'::TIMESTAMP, '{$END_TIME}'::TIMESTAMP);")
+#echo ${DURATION_SECONDS}
+
+
+################################################################################
+# Clean up by removing files.
+# Leave exception and reject files that contain data.
+################################################################################
+rm ${SQL_FILE_SRC}*
+rm ${SQL_FILE_DST}*
+find ${EXCEPTION_FILE}* -size  0 -print0 |xargs -0 rm
+find ${REJECTION_FILE}* -size  0 -print0 |xargs -0 rm
+
+################################################################################
+# Print Statistics
+################################################################################
+${VSQL_CLIENT} ${VSQL_DST} -x \
+-c "SELECT floor((1000*accepted_row_count/load_duration_ms)) AS RowsPerSecond, * "\
+"     FROM load_streams "\
+"    WHERE stream_name LIKE '"${STREAM_NAME}"%' ORDER BY stream_name DESC;"
+
+${VSQL_CLIENT} ${VSQL_DST} \
+-c "SELECT stream_name, floor((1000*accepted_row_count/load_duration_ms)) AS RowsPerSecond"\
+"          , accepted_row_count"\
+"          , floor(load_duration_ms/1000) load_duration_seconds"\
+"          , rejected_row_count"\
+"     FROM load_streams "\
+"    WHERE stream_name LIKE '"${STREAM_NAME}"%'  "\
+"    UNION ALL"\
+"   SELECT ' TOTALS', floor(SUM(accepted_row_count+rejected_row_count)/${DURATION_SECONDS})"\
+"          ,SUM(accepted_row_count) accepted_row_count"\
+"          ,${DURATION_SECONDS}  load_duration_seconds"\
+"          ,SUM(rejected_row_count) rejected_row_count"\
+"     FROM load_streams "\
+"    WHERE stream_name LIKE '"${STREAM_NAME}"%' ORDER BY 2 DESC ;"
+
+
+exit
+
+
