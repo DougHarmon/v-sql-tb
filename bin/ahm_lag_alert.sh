@@ -1,7 +1,7 @@
 #!/bin/bash
 #Monitor the lag in the Ancient History Mark (AHM)
 #If AHM >= $HOURS_BEHIND then send an email to $EMAIL_LIST
-export APPHOME=/home/dbabmin
+export APPHOME=/home/dbadmin
 
 . $APPHOME/.bashrc
 

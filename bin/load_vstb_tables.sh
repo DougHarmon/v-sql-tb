@@ -1,5 +1,5 @@
 #!/bin/bash
-export APPHOME=/home/dbabmin
+export APPHOME=/home/dbadmin
 
 . $APPHOME/.bashrc
 
