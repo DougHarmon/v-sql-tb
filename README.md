@@ -25,13 +25,9 @@ There are several monitoring tools that work with Linux/Vertica such as:
 * Cacti
 
 This tool is designed to complement these monitoring tools. It creates a set of
-SQL tables to capture historical data and a SQL Load script to populate these 
-tables. These enable retention of historical data on v\_monitor and data 
-collector tables. A collection of diagnostic views that sit on top of 
-the historical and the current v\_monitor and data collector tables provides 
-the DBA with insights into the Vertica database.
-
-
+SQL tables to capture historical data from the v\_monitor and data collector tables. 
+These tables are updated by SQL scripts, and a collection of diagnostic views 
+sit on top of these tables to provide the DBA with insights into the Vertica database.
 
 Diagnostic Views
 ----------------
@@ -51,7 +47,6 @@ Diagnostic Views
 - **vProjectionUsageHistory** 
 - **vLongRunningQueriesHistory**
 - **vProjectionGrowthOverTimeWeekly**
-
 
 
 Tables And Views Created in vstb schema
