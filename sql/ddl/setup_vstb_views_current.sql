@@ -329,41 +329,73 @@ DROP VIEW IF EXISTS vstb.vQueryPlanProfiles;
 CREATE VIEW vstb.vQueryPlanProfiles
 AS 
 SELECT qp.query_start
-  ,qp.query_duration_us
-  ,(COALESCE(qr.end_timestamp,GETDATE()) - qr.start_timestamp)::INTERVAL AS request_duration
-  ,qp.user_name
-  ,qp.is_executing
-  ,qp.query_type
-  ,qp.session_id
-  ,qp.transaction_id
-  ,qp.statement_id
-  ,qp.identifier
-  ,qp.node_name
-  ,REGEXP_REPLACE(query,'[\r\n\t]',' ') AS query 
-  ,qpp.path_line
-  ,qpp.path_id
-  ,qpp.path_line_index
-  ,qpp.running_time
-  ,qpp.memory_allocated_bytes
-  ,qpp.read_from_disk_bytes
-  ,qpp.received_bytes
-  ,qpp.sent_bytes
-FROM v_monitor.query_profiles      AS qp
-JOIN v_monitor.query_plan_profiles AS qpp
- ON qp.statement_id   = qpp.statement_id
-AND qp.transaction_id = qpp.transaction_id
-JOIN v_monitor.query_requests     AS qr
- ON qp.statement_id   = qr.statement_id
-AND qp.transaction_id = qr.transaction_id
-AND qp.session_id     = qr.session_id
-WHERE 1=1
+    ,qp.query_duration_us
+    ,(COALESCE(qr.end_timestamp, GETDATE()) - qr.start_timestamp)::INTERVAL AS request_duration
+    ,qp.user_name
+    ,qp.is_executing
+    ,qp.query_type
+    ,qp.session_id
+    ,qp.transaction_id
+    ,qp.statement_id
+    ,qp.identifier
+    ,qp.node_name
+    ,REGEXP_REPLACE(query, '[\r\n\t\f]', ' ') AS query
+    ,qpp.path_line
+    ,qpp.path_id
+    ,qpp.path_line_index
+    ,qpp.running_time
+    ,qpp.memory_allocated_bytes
+    ,qpp.read_from_disk_bytes
+    ,qpp.received_bytes
+    ,qpp.sent_bytes
+    ,qe.event_messages
+FROM v_monitor.query_profiles AS qp
+JOIN v_monitor.query_plan_profiles AS qpp ON qp.statement_id = qpp.statement_id
+    AND qp.transaction_id = qpp.transaction_id
+JOIN v_monitor.query_requests AS qr ON qp.statement_id = qr.statement_id
+    AND qp.transaction_id = qr.transaction_id
+    AND qp.session_id = qr.session_id
+LEFT JOIN
+
+( 
+  SELECT transaction_id
+        ,statement_id
+        ,session_id
+        ,MAPTOSTRING(raw_map) AS event_messages
+    FROM 
+       ( 
+          SELECT transaction_id
+                ,statement_id
+                ,session_id
+                ,MAPAGGREGATE(event_description
+                             , REGEXP_REPLACE(
+                                               mapToSTring(raw_map using parameters canonical_json=true)::VARCHAR(65000)
+                                              ,'[\r\n\t\f]',' ') 
+                             ) 
+                 OVER (PARTITION by transaction_id, statement_id, session_id) AS raw_map      
+            FROM 
+                 (
+                   SELECT event_description
+                         ,transaction_id
+                         ,statement_id
+                         ,session_id
+                         ,MAPAGGREGATE(node_name , event_details ) 
+                          OVER (PARTITION BY event_description, transaction_id, statement_id, session_id) AS raw_map
+                   FROM v_monitor.query_events
+                 ) AS T1
+       ) AS T2
+) AS qe       
+ON qp.statement_id = qe.statement_id
+    AND qp.transaction_id = qe.transaction_id
+    AND qp.session_id = qe.session_id
+WHERE 1 = 1
 ORDER BY qp.query_start DESC
-  ,qp.transaction_id
-  ,qpp.path_line
-  ,qpp.statement_id
-  ,qpp.path_id
-  ,qpp.path_line_index 
-;
+    ,qp.transaction_id
+    ,qpp.path_line
+    ,qpp.statement_id
+    ,qpp.path_id
+    ,qpp.path_line_index;
+
 
 --=========================================================================
 --Create vMostCommonQueries
